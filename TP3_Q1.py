@@ -8,7 +8,14 @@ from glosocket import *
 
 def get_arguments() -> Tuple[bool, bool, int, Optional[str]]:
     """
-    TODO REECRIRE le commentaire
+    Cette fonction doit :
+    - ajouter les arguments attendus aux parser,
+    - récupérer les arguments passés,
+    - retourner un tuple contenant dans cet ordre : 
+        1. est-ce que le protocole est IPv6 ? (Booléen)
+        2. est-ce que le mode est « écoute » ? (Booléen)
+        3. le port choisi (entier)
+        4. l’adresse du serveur (string si client, None si serveur)
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--port", dest="port", type=int,
@@ -55,7 +62,7 @@ def make_server_socket(port: int, est_ipv6: bool) -> socket.socket:
     try:
         socket_serveur.bind(("127.0.0.1", port))
     except:
-        print("Error: Port is invalid") 
+        print("Error: Unable to bind to the port " + str(port))
         socket_serveur.close()
         sys.exit()
     
