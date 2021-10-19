@@ -21,29 +21,29 @@ def get_arguments() -> Tuple[bool, bool, int, Optional[str]]:
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--port", dest="port", type=int,
                         action="store", required=True)
-    parser.add_argument("-l", "--listen", dest="appMode", action="store_true")
+    parser.add_argument("-l", "--listen", dest="mode_app", action="store_true")
     parser.add_argument("-d", "--destination", dest="destination", action="store")
-    parser.add_argument("-6", dest="ipMode", action="store", default="ipv4")
+    parser.add_argument("-6", dest="mode_ip", action="store", default="ipv4")
     arguments = parser.parse_args()
 
-    isIpv6 = (arguments.ipMode != "ipv4")
-    isServer = arguments.appMode
+    est_ipv6 = (arguments.mode_ip != "ipv4")
+    est_serveur = arguments.mode_app
 
-    if isServer:
+    if est_serveur:
         if arguments.destination:
-            print("Error: The server cannot have a destination")
+            print("Erreur: Le serveur ne peut pas avoir de destination")
             sys.exit()
     elif (not arguments.destination):
-        print("Error: The client need a destination")
+        print("Erreur: Le client doit avoir une destination")
         sys.exit()
     else:
         try:
             socket.inet_aton(arguments.destination)
         except socket.error:
-            print("Error: The address IP is not valid")
+            print("Erreur: L'adresse IP est invalide")
             sys.exit()
 
-    return (isIpv6, isServer, arguments.port, arguments.destination)
+    return (est_ipv6, est_serveur, arguments.port, arguments.destination)
 
 
 def make_server_socket(port: int, est_ipv6: bool) -> socket.socket:
@@ -54,22 +54,22 @@ def make_server_socket(port: int, est_ipv6: bool) -> socket.socket:
     Si le port est invalide ou indisponible, le programme termine.
     """
     if est_ipv6:
-        server_socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        socket_serveur = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
     else:
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket_serveur = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    socket_serveur.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     try:
-        server_socket.bind(("127.0.0.1", port))
+        socket_serveur.bind(("127.0.0.1", port))
     except:
-        print("Error: Unable to bind to the port " + str(port))
-        server_socket.close()
+        print("Erreur: Le port " + str(port) + " inutilisable")
+        socket_serveur.close()
         sys.exit()
 
-    server_socket.listen(1)
+    socket_serveur.listen(1)
 
-    return server_socket
+    return socket_serveur
 
 
 def make_client_socket(destination: str, port: int, est_ipv6: bool) -> socket.socket:
@@ -84,9 +84,11 @@ def make_client_socket(destination: str, port: int, est_ipv6: bool) -> socket.so
         socket_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     try:
+        socket_client.settimeout(3)
         socket_client.connect((destination, port))
+        socket_client.settimeout(None)
     except:
-        print("Error: Can't connect to the server")
+        print("Erreur: Connexion au serveur échouée")
         socket_client.close()
         sys.exit()
 
@@ -103,14 +105,14 @@ def generate_mod_base(destination: socket.socket) -> Optional[Tuple[int, int]]:
         2. la base
     - retourner un tuple contenant les deux valeurs dans ce même ordre.
     """
-    prime_number = trouver_nombre_premier()
+    nombre_premier = trouver_nombre_premier()
 
-    base = entier_aleatoire(prime_number)
+    base = entier_aleatoire(nombre_premier)
 
-    send_msg(destination, str(prime_number))
+    send_msg(destination, str(nombre_premier))
     send_msg(destination, str(base))
 
-    return (prime_number, base)
+    return (nombre_premier, base)
 
 
 def fetch_mod_base(source: socket.socket) -> Tuple[int, int]:
@@ -125,18 +127,18 @@ def fetch_mod_base(source: socket.socket) -> Tuple[int, int]:
     Si l’une des réceptions échoue, le programme termine.
     """
     try:
-        prime_number = int(recv_msg(source))
+        nombre_premier = int(recv_msg(source))
     except:
-        print("Error: Didn't receive prime number")
+        print("Erreur: Nombre premier non reçu")
         sys.exit()
 
     try:
         base = int(recv_msg(source))
     except:
-        print("Error: Didn't receive base number")
+        print("Erreur: Nombre premier non reçu")
         sys.exit()
 
-    return (prime_number, base)
+    return (nombre_premier, base)
 
 
 def generate_pub_prv_keys(modulo: int, base: int) -> Tuple[int, int]:
@@ -148,10 +150,10 @@ def generate_pub_prv_keys(modulo: int, base: int) -> Tuple[int, int]:
         1. la clé privée
         2. la clé publique
     """
-    private_key = entier_aleatoire(modulo)
-    public_key = exponentiation_modulaire(base, private_key, modulo)
+    cle_privee = entier_aleatoire(modulo)
+    cle_publique = exponentiation_modulaire(base, cle_privee, modulo)
 
-    return (private_key, public_key)
+    return (cle_privee, cle_publique)
 
 
 def exchange_keys(destination: socket.socket, cle_pub: int) -> Optional[int]:
@@ -166,16 +168,16 @@ def exchange_keys(destination: socket.socket, cle_pub: int) -> Optional[int]:
     try:
         send_msg(destination, str(cle_pub))
     except Exception as err:
-        print("Error: Failed sending public key")
+        print("Erreur: Envoie de la clée publique échouée")
         return None
 
     try:
-        dest_public_key = int(recv_msg(destination))
+        dest_cle_publique = int(recv_msg(destination))
     except:
-        print("Error: Failed receiving public key")
+        print("Erreur: Envoie de la clé publique échouée")
         return None
 
-    return dest_public_key
+    return dest_cle_publique
 
 
 def compute_shared_key(modulo: int, cle_prv: int, cle_pub: int) -> int:
@@ -192,10 +194,10 @@ def server(port: int, est_ipv6: bool) -> NoReturn:
     Si la connexion à un client est interrompue, le serveur abandonne ce client
     et en attend un nouveau.
     """
-    socket_server = make_server_socket(port, est_ipv6)
+    socket_serveur = make_server_socket(port, est_ipv6)
 
     while True:
-        (client_socket, client_address) = socket_server.accept()
+        (client_socket, client_address) = socket_serveur.accept()
 
         mod_base = generate_mod_base(client_socket)
 
