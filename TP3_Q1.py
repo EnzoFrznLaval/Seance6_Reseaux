@@ -1,6 +1,7 @@
 import argparse
 import socket
 import sys
+import math
 
 from glocrypto import *
 from glosocket import *
@@ -8,18 +9,11 @@ from glosocket import *
 
 def get_arguments() -> Tuple[bool, bool, int, Optional[str]]:
     """
-    Cette fonction doit :
-    - ajouter les arguments attendus aux parser,
-    - récupérer les arguments passés,
-    - retourner un tuple contenant dans cet ordre : 
-        1. est-ce que le protocole est IPv6 ? (Booléen)
-        2. est-ce que le mode est « écoute » ? (Booléen)
-        3. le port choisi (entier)
-        4. l’adresse du serveur (string si client, None si serveur)
+    TODO REECRIRE le commentaire
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--port", dest="port", type=int,
-                    action="store", required=True)
+                        action="store", required=True)
     parser.add_argument("-l", "--listen", dest="appMode", action="store_true")
     parser.add_argument("-d", "--destination", dest="destination", action="store")
     parser.add_argument("-6", dest="ipMode", action="store", default="ipv4")
@@ -53,22 +47,22 @@ def make_server_socket(port: int, est_ipv6: bool) -> socket.socket:
     Si le port est invalide ou indisponible, le programme termine.
     """
     if est_ipv6:
-        socket_serveur = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        server_socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
     else:
-        socket_serveur = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    socket_serveur.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     try:
-        socket_serveur.bind(("127.0.0.1", port))
+        server_socket.bind(("127.0.0.1", port))
     except:
-        print("Error: Unable to bind to the port " + str(port))
-        socket_serveur.close()
+        print("Error: Port is invalid")
+        server_socket.close()
         sys.exit()
-    
-    socket_serveur.listen(1)
 
-    return socket_serveur
+    server_socket.listen(1)
+
+    return server_socket
 
 
 def make_client_socket(destination: str, port: int, est_ipv6: bool) -> socket.socket:
@@ -81,14 +75,14 @@ def make_client_socket(destination: str, port: int, est_ipv6: bool) -> socket.so
         socket_client = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
     else:
         socket_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    
+
     try:
         socket_client.connect((destination, port))
     except:
         print("Error: Can't connect to the server")
         socket_client.close()
         sys.exit()
-    
+
     return socket_client
 
 
@@ -102,8 +96,14 @@ def generate_mod_base(destination: socket.socket) -> Optional[Tuple[int, int]]:
         2. la base
     - retourner un tuple contenant les deux valeurs dans ce même ordre.
     """
-    # TODO
-    return
+    prime_number = trouver_nombre_premier()
+
+    base = entier_aleatoire(prime_number)
+
+    send_msg(destination, str(prime_number))
+    send_msg(destination, str(base))
+
+    return (prime_number, base)
 
 
 def fetch_mod_base(source: socket.socket) -> Tuple[int, int]:
@@ -117,8 +117,19 @@ def fetch_mod_base(source: socket.socket) -> Tuple[int, int]:
 
     Si l’une des réceptions échoue, le programme termine.
     """
-    # TODO
-    return
+    try:
+        prime_number = int(recv_msg(source))
+    except:
+        print("Error: Didn't receive prime number")
+        sys.exit()
+
+    try:
+        base = int(recv_msg(source))
+    except:
+        print("Error: Didn't receive base number")
+        sys.exit()
+
+    return (prime_number, base)
 
 
 def generate_pub_prv_keys(modulo: int, base: int) -> Tuple[int, int]:
@@ -130,8 +141,10 @@ def generate_pub_prv_keys(modulo: int, base: int) -> Tuple[int, int]:
         1. la clé privée
         2. la clé publique
     """
-    # TODO
-    return
+    private_key = entier_aleatoire(modulo)
+    public_key = exponentiation_modulaire(base, private_key, modulo)
+
+    return (private_key, public_key)
 
 
 def exchange_keys(destination: socket.socket, cle_pub: int) -> Optional[int]:
@@ -142,16 +155,27 @@ def exchange_keys(destination: socket.socket, cle_pub: int) -> Optional[int]:
 
     Si l’envoi ou la réception échoue, la fonction retourne None.
     """
-    # TODO
-    return
+
+    try:
+        send_msg(destination, str(cle_pub))
+    except Exception as err:
+        print("Error: Failed sending public key")
+        return None
+
+    try:
+        dest_public_key = int(recv_msg(destination))
+    except:
+        print("Error: Failed receiving public key")
+        return None
+
+    return dest_public_key
 
 
 def compute_shared_key(modulo: int, cle_prv: int, cle_pub: int) -> int:
     """
     Cette fonction doit, à l’aide du module glocrypto, déduire la clé partagée.
     """
-    # TODO
-    return
+    return exponentiation_modulaire(cle_pub, cle_prv, modulo)
 
 
 def server(port: int, est_ipv6: bool) -> NoReturn:
@@ -163,18 +187,28 @@ def server(port: int, est_ipv6: bool) -> NoReturn:
     """
     socket_server = make_server_socket(port, est_ipv6)
 
-
-
-
-    #TODO
     while True:
         (client_socket, client_address) = socket_server.accept()
 
-        data = client_socket.recv(2048)
-        if len(data) == 0:
-            client_socket.close()
-        else:
-            pass
+        mod_base = generate_mod_base(client_socket)
+
+        keys = generate_pub_prv_keys(mod_base[0], mod_base[1])
+
+        client_pub_key = exchange_keys(client_socket, keys[1])
+
+        shared_key = compute_shared_key(mod_base[0], keys[0], client_pub_key)
+
+        print(shared_key)
+
+        """
+        while True:
+            message_size = 2048
+            message_client = client_socket.recv(message_size).decode(encoding="utf8")
+            print(message_client)
+            message_server = input("Enter your message: \n")
+            send_msg(client_socket, message_server)
+        """
+        client_socket.close()
 
 def client(destination: str, port: int, est_ipv6: bool) -> None:
     """
@@ -182,18 +216,20 @@ def client(destination: str, port: int, est_ipv6: bool) -> None:
 
     Si la connexion au serveur est interrompue, le client termine.
     """
-    client_socket = make_client_socket(destination, port, est_ipv6)
+    connection_socket = make_client_socket(destination, port, est_ipv6)
 
+    mod_base = fetch_mod_base(connection_socket)
 
+    keys = generate_pub_prv_keys(mod_base[0], mod_base[1])
 
+    server_pub_key = exchange_keys(connection_socket, keys[1])
 
-    #TODO
-    while True:
-        data = client_socket.recv(2048)
-        if len(data) == 0:
-            client_socket.close()
-        else:
-            pass
+    shared_key = compute_shared_key(mod_base[0], keys[0], server_pub_key)
+
+    print(shared_key)
+
+    connection_socket.close()
+
 
 def main() -> None:
     est_ipv6, est_serveur, port, destination = get_arguments()
